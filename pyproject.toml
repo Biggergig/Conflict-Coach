@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "grandalf>=0.8",
     "ipykernel>=6.29.5",
     "langchain-core>=0.3.60",
     "langchain-openai>=0.3.17",
