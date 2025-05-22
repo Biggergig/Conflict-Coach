@@ -11,6 +11,7 @@ from langchain_core.messages import (
     RemoveMessage,
 )
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables.graph import MermaidDrawMethod
 
 from langgraph.graph import START, StateGraph
 from operator import add
@@ -182,7 +183,9 @@ if __name__ == "__main__":
     graph.get_graph(xray=True).print_ascii()
     # Save the Image to a file
     if SAVE_IMAGE:
-        graph_image = graph.get_graph(xray=True).draw_mermaid_png()
+        graph_image = graph.get_graph(xray=True).draw_mermaid_png(
+            draw_method=MermaidDrawMethod.PYPPETEER
+        )
         with open("graph.png", "wb") as f:
             f.write(graph_image)
 

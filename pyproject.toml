@@ -10,4 +10,5 @@ dependencies = [
     "langchain-core>=0.3.60",
     "langchain-openai>=0.3.17",
     "langgraph>=0.4.5",
+    "pyppeteer>=2.0.0",
 ]
