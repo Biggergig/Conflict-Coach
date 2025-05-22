@@ -3,6 +3,7 @@ import sys
 from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState
 from langgraph.prebuilt import ToolNode
+from langchain_core.tools import tool
 from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
@@ -13,15 +14,15 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables.graph import MermaidDrawMethod
 
-from langgraph.graph import START, StateGraph
+from langgraph.graph import START, StateGraph, END
 from operator import add
 
-from typing import Literal, List, Annotated, TypedDict
+from typing import Literal, List, Annotated, TypedDict, Dict, Any
 
 os.environ["LANGSMITH_TRACING"] = "true"
 os.environ["LANGSMITH_PROJECT"] = "conflict-coach-vTool"
 
-MAX_QUESTIONS = 1
+MAX_QUESTIONS = 3
 SAVE_IMAGE = "--img" in sys.argv
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.6)
@@ -40,9 +41,6 @@ class ResponseState(TypedDict):
 
 
 # Tools
-from langchain_core.tools import tool
-
-
 @tool
 def ask_user_question(question: str) -> str:
     """Ask the user a question for further context, and returns their response."""
@@ -71,6 +69,8 @@ def init(state):
 
 
 def gather_context(state: ContextState):
+    if len(state["answers"]) >= MAX_QUESTIONS:
+        return {}
     tool_llm = llm.bind_tools([ask_user_question])
     response = tool_llm.invoke(state["messages"])
 
@@ -130,29 +130,45 @@ Please output a concise but comprehensive summary of the conversation, with the 
 
 def respond(state: ContextState) -> ResponseState:
     context = state["context"]
-    print("Context:", context)
-    # TODO: chain of thought here
+
     prompt_template = ChatPromptTemplate(
         [
             (
                 "system",
-                "You are a personal coach helping the user handle interpersonal conflicts. I will provide you with summaries of different contexts, and you will first process the situation, and then output a proper response for the user to reply with.",
+                "You are a personal coach helping the user handle interpersonal conflicts. I will provide you with summaries of different contexts, and you will first process the situation. To process it, you will consider it from the perspective of the other person by writing down what you think are their thoughts and feelings. Finally, you will output a proper response for the user to reply with taking the perspective of the other person into account.",
+            ),
+            (
+                "user",
+                'The user is dealing with a conflict with their partner, who sent a text expressing frustration about the user forgetting to put the laundry away. The message included the statement, "You never do anything," which the user feels is an overreaction to the situation. The user acknowledges that they had intended to complete the task but forgot due to being busy.',
+            ),
+            (
+                "assistant",
+                """
+SITUATION: Your partner asked you to put the laundry away yesterday and accused you of not contributing enough.
+
+THOUGHTS: They are likely not upset about just this incident, but rather about this pattern and how they are tasked with too much without help.
+
+FEELINGS: They are likely feeling frustrated, unsupported, and overworked.
+
+RESPONSE: "I understand that you're feeling frustrated about the laundry, and I'm really sorry for forgetting. I can see how it might feel like I'm not contributing enough, and I want to make sure that isn't the case because it's not fair to you otherwise. Let's talk about how we can better share these tasks so it doesn't feel like a burden to you.
+""".strip(),
             ),
             ("user", "{context}"),
         ]
     )
 
-    print(prompt_template.invoke(dict(state)))
+    filled_template = prompt_template.invoke(dict(state))
+    output = llm.invoke(filled_template)
+    # print("RESPONSE:\n", output.text())
 
-    return ResponseState(context=context, response="TODO")
+    return ResponseState(context=context, response=output.text())
 
 
 # Conditional Edges
 def has_question(state: ContextState) -> Literal["followup", "summarize"]:
     last_message = state["messages"][-1]
-    assert isinstance(
-        last_message, AIMessage
-    ), "Expected last message to be an AIMessage"
+    if not isinstance(last_message, AIMessage):
+        return "summarize"
 
     # No more than 3 questions allowed
     if not last_message.tool_calls or len(state["answers"]) >= MAX_QUESTIONS:
@@ -177,6 +193,7 @@ if __name__ == "__main__":
     builder.add_conditional_edges("gather_context", has_question)
     builder.add_edge("followup", "gather_context")
     builder.add_edge("summarize", "respond")
+    builder.add_edge("respond", END)
 
     graph = builder.compile()
 
@@ -195,5 +212,7 @@ if __name__ == "__main__":
         )
     ]
 
-    respond = graph.invoke({"messages": messages})  # type: ignore
-    print("\n\nFinal Output:\n", respond)
+    response: Dict[str, Any] = graph.invoke({"messages": messages})
+    # print(response)
+    print("\n\nFinal Output:\n\nContext:\n", response["context"])
+    print("\nResponse:\n", response["response"])
