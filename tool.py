@@ -121,10 +121,11 @@ Please output a concise but comprehensive summary of the conversation, with the 
 
     print(prompt)
     response = llm.invoke(prompt)
-    print("LLM summary response:", response)
+    print("LLM summary response:", response.content)
     # print("Initial message:", initial_message)
     # print("Questions:", followup_questions)
     # print("Follow-up answers:", followup_answers)
+    return {"context": response.content}
 
 
 # Conditional Edges
@@ -162,8 +163,10 @@ if __name__ == "__main__":
     # display(Image(react_graph.get_graph(xray=True).draw_mermaid_png()))
 
     messages = [
-        HumanMessage(content="You didn't put the laundry away, you never do anything!")
+        HumanMessage(
+            content='My partner sent me the text "You didn\'t put the laundry away, you never do anything!", and they asked me to do that yesterday but I forgot because I was busy.'
+        )
     ]
 
     response = react_graph.invoke({"messages": messages})
-    # print("\n\nResponse:\n", response)
+    print("\n\nResponse:\n", response)
