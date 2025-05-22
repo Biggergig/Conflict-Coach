@@ -19,6 +19,7 @@ os.environ["LANGSMITH_TRACING"] = "true"
 os.environ["LANGSMITH_PROJECT"] = "conflict-coach-vTool"
 
 MAX_QUESTIONS = 1
+SAVE_IMAGE = False
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.6)
 
@@ -160,7 +161,11 @@ if __name__ == "__main__":
     react_graph = builder.compile()
 
     react_graph.get_graph(xray=True).print_ascii()
-    # display(Image(react_graph.get_graph(xray=True).draw_mermaid_png()))
+    # Save the Image to a file
+    if SAVE_IMAGE:
+        graph_image = react_graph.get_graph(xray=True).draw_mermaid_png()
+        with open("graph.png", "wb") as f:
+            f.write(graph_image)
 
     messages = [
         HumanMessage(
