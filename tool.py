@@ -7,14 +7,15 @@ from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
     AIMessage,
+    AnyMessage,
     RemoveMessage,
 )
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 
 from langgraph.graph import START, StateGraph
 from operator import add
 
-from typing import Literal, List, Annotated
+from typing import Literal, List, Annotated, TypedDict
 
 os.environ["LANGSMITH_TRACING"] = "true"
 os.environ["LANGSMITH_PROJECT"] = "conflict-coach-vTool"
@@ -32,6 +33,11 @@ class ContextState(MessagesState):
     context: str
 
 
+class ResponseState(TypedDict):
+    context: str
+    response: str
+
+
 # Tools
 from langchain_core.tools import tool
 
@@ -46,7 +52,7 @@ ask_user_question_node = ToolNode([ask_user_question])
 
 
 # Nodes
-def init(state: ContextState):
+def init(state):
     starting_message = state["messages"][-1]
     message_transcript = starting_message.content
 
@@ -64,7 +70,6 @@ def init(state: ContextState):
 
 
 def gather_context(state: ContextState):
-    print(state)
     tool_llm = llm.bind_tools([ask_user_question])
     response = tool_llm.invoke(state["messages"])
 
@@ -72,19 +77,16 @@ def gather_context(state: ContextState):
 
 
 def followup(state: ContextState):
-    print("In followup", state)
     assert isinstance(
         state["messages"][-1], AIMessage
     ), "Expected last message to be an AIMessage"
     assert state["messages"][-1].tool_calls, "Expected last message to have tool calls"
     tool_call = state["messages"][-1].tool_calls[0]
-    print(tool_call)
 
     # Should only be a call to ask_user_question
     question = tool_call["args"]["question"]
     response = ask_user_question_node.invoke(state)
 
-    print("response to question:", response)
     return {
         "messages": response["messages"],
         "questions": [question],
@@ -93,8 +95,6 @@ def followup(state: ContextState):
 
 
 def summarize(state: ContextState):
-    print("SUMMARIZE:\n", state)
-
     # Retrieve the initial user message (assumed second)
     initial_message = state["messages"][1].content
     followup_questions = state["questions"]
@@ -127,9 +127,23 @@ Please output a concise but comprehensive summary of the conversation, with the 
     return {"context": response.content}
 
 
-def response(state: ContextState):
+def respond(state: ContextState) -> ResponseState:
     context = state["context"]
     print("Context:", context)
+    # TODO: chain of thought here
+    prompt_template = ChatPromptTemplate(
+        [
+            (
+                "system",
+                "You are a personal coach helping the user handle interpersonal conflicts. I will provide you with summaries of different contexts, and you will first process the situation, and then output a proper response for the user to reply with.",
+            ),
+            ("user", "{context}"),
+        ]
+    )
+
+    print(prompt_template.invoke(state))
+
+    return ResponseState(context=context, response="TODO")
 
 
 # Conditional Edges
@@ -147,21 +161,21 @@ def has_question(state: ContextState) -> Literal["followup", "summarize"]:
 
 
 def build_graph():
-    builder = StateGraph(ContextState)
+    builder = StateGraph(ContextState, output=ResponseState)
 
     # Add nodes to the graph
     builder.add_node("init", init)
     builder.add_node("gather_context", gather_context)
     builder.add_node("followup", followup)
     builder.add_node("summarize", summarize)
-    builder.add_node("response", response)
+    builder.add_node("respond", respond)
 
     # Add edges to the graph
     builder.add_edge(START, "init")
     builder.add_edge("init", "gather_context")
     builder.add_conditional_edges("gather_context", has_question)
     builder.add_edge("followup", "gather_context")
-    builder.add_edge("summarize", "response")
+    builder.add_edge("summarize", "respond")
 
     return builder.compile()
 
@@ -175,11 +189,15 @@ if __name__ == "__main__":
         with open("graph.png", "wb") as f:
             f.write(graph_image)
 
-    messages = [
+    messages: List[AnyMessage] = [
         HumanMessage(
             content='My partner sent me the text "You didn\'t put the laundry away, you never do anything!", and they asked me to do that yesterday but I forgot because I was busy.'
         )
     ]
 
-    response = graph.invoke({"messages": messages})
-    print("\n\nResponse:\n", response)
+    context_state = ContextState(
+        messages=messages, questions=[], answers=[], context=""
+    )
+
+    respond = graph.invoke({"messages": messages})  # type: ignore
+    print("\n\nFinal Output:\n", respond)
