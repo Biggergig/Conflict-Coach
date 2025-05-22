@@ -8,20 +8,22 @@ from langchain_core.messages import (
     AIMessage,
     RemoveMessage,
 )
+from langchain_core.prompts import PromptTemplate
 
-from langgraph.graph import START, StateGraph, END
+from langgraph.graph import START, StateGraph
 from operator import add
 
-from typing import Sequence, Literal, List, Tuple, Annotated
+from typing import Literal, List, Annotated
 
 os.environ["LANGSMITH_TRACING"] = "true"
 os.environ["LANGSMITH_PROJECT"] = "conflict-coach-vTool"
 
+MAX_QUESTIONS = 1
+
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.6)
 
-from typing import TypedDict
 
-
+# State
 class ContextState(MessagesState):
     questions: Annotated[List[str], add]
     answers: Annotated[List[str], add]
@@ -96,19 +98,36 @@ def summarize(state: ContextState):
         1
     ].content  # Assuming the first message is the user message
     # Collect follow-up answers
+    followup_questions = state["questions"]
     followup_answers = state["answers"]
 
-    # Create a summary
-    summary = initial_message + "\n" + "\n".join(map(str, followup_answers))
+    prompt = f"""
+You are a personal coach helping the user handle a conflict. Here is the relevant information from the conversation:
 
-    # Save the summary to context
-    state["context"] = summary
-    print("Updated context:", state["context"])
+Original context given by the user:
+{initial_message}
+
+Follow-up questions and answers:
+    """
+    for question, answer in zip(followup_questions, followup_answers):
+        prompt += f"""
+Q: {question}
+A: {answer}
+"""
+    prompt += """
+Please output a concise but comprehensive summary of the conversation, with the goal of capturing the full context of the conversation.
+"""
+    prompt = prompt.strip()
+
+    print(prompt)
+    response = llm.invoke(prompt)
+    print("LLM summary response:", response)
+    # print("Initial message:", initial_message)
+    # print("Questions:", followup_questions)
+    # print("Follow-up answers:", followup_answers)
 
 
 # Conditional Edges
-
-
 def has_question(state: ContextState) -> Literal["followup", "summarize"]:
     last_message = state["messages"][-1]
     assert isinstance(
@@ -116,35 +135,35 @@ def has_question(state: ContextState) -> Literal["followup", "summarize"]:
     ), "Expected last message to be an AIMessage"
 
     # No more than 3 questions allowed
-    if not last_message.tool_calls or len(state["answers"]) >= 3:
+    if not last_message.tool_calls or len(state["answers"]) >= MAX_QUESTIONS:
         return "summarize"
     else:
         return "followup"
 
 
-builder = StateGraph(ContextState)
-
-# Add nodes to the graph
-builder.add_node("init", init)
-builder.add_node("gather_context", gather_context)
-builder.add_node("followup", followup)
-builder.add_node("summarize", summarize)
-
-# Add edges to the graph
-builder.add_edge(START, "init")
-builder.add_edge("init", "gather_context")
-builder.add_conditional_edges("gather_context", has_question)
-builder.add_edge("followup", "gather_context")
-
-react_graph = builder.compile()
-
-react_graph.get_graph(xray=True).print_ascii()
-# display(Image(react_graph.get_graph(xray=True).draw_mermaid_png()))
-
 if __name__ == "__main__":
+    builder = StateGraph(ContextState)
+
+    # Add nodes to the graph
+    builder.add_node("init", init)
+    builder.add_node("gather_context", gather_context)
+    builder.add_node("followup", followup)
+    builder.add_node("summarize", summarize)
+
+    # Add edges to the graph
+    builder.add_edge(START, "init")
+    builder.add_edge("init", "gather_context")
+    builder.add_conditional_edges("gather_context", has_question)
+    builder.add_edge("followup", "gather_context")
+
+    react_graph = builder.compile()
+
+    react_graph.get_graph(xray=True).print_ascii()
+    # display(Image(react_graph.get_graph(xray=True).draw_mermaid_png()))
+
     messages = [
         HumanMessage(content="You didn't put the laundry away, you never do anything!")
     ]
 
     response = react_graph.invoke({"messages": messages})
-    print("\n\nResponse:\n", response)
+    # print("\n\nResponse:\n", response)
