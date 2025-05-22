@@ -141,7 +141,7 @@ def respond(state: ContextState) -> ResponseState:
         ]
     )
 
-    print(prompt_template.invoke(state))
+    print(prompt_template.invoke(dict(state)))
 
     return ResponseState(context=context, response="TODO")
 
@@ -160,7 +160,7 @@ def has_question(state: ContextState) -> Literal["followup", "summarize"]:
         return "followup"
 
 
-def build_graph():
+if __name__ == "__main__":
     builder = StateGraph(ContextState, output=ResponseState)
 
     # Add nodes to the graph
@@ -177,11 +177,8 @@ def build_graph():
     builder.add_edge("followup", "gather_context")
     builder.add_edge("summarize", "respond")
 
-    return builder.compile()
+    graph = builder.compile()
 
-
-if __name__ == "__main__":
-    graph = build_graph()
     graph.get_graph(xray=True).print_ascii()
     # Save the Image to a file
     if SAVE_IMAGE:
@@ -194,10 +191,6 @@ if __name__ == "__main__":
             content='My partner sent me the text "You didn\'t put the laundry away, you never do anything!", and they asked me to do that yesterday but I forgot because I was busy.'
         )
     ]
-
-    context_state = ContextState(
-        messages=messages, questions=[], answers=[], context=""
-    )
 
     respond = graph.invoke({"messages": messages})  # type: ignore
     print("\n\nFinal Output:\n", respond)
