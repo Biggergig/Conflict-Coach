@@ -1,4 +1,5 @@
 import os
+import sys
 from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState
 from langgraph.prebuilt import ToolNode
@@ -19,7 +20,7 @@ os.environ["LANGSMITH_TRACING"] = "true"
 os.environ["LANGSMITH_PROJECT"] = "conflict-coach-vTool"
 
 MAX_QUESTIONS = 1
-SAVE_IMAGE = False
+SAVE_IMAGE = "--img" in sys.argv
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.6)
 
@@ -94,11 +95,8 @@ def followup(state: ContextState):
 def summarize(state: ContextState):
     print("SUMMARIZE:\n", state)
 
-    # Retrieve the initial user message
-    initial_message = state["messages"][
-        1
-    ].content  # Assuming the first message is the user message
-    # Collect follow-up answers
+    # Retrieve the initial user message (assumed second)
+    initial_message = state["messages"][1].content
     followup_questions = state["questions"]
     followup_answers = state["answers"]
 
@@ -120,13 +118,18 @@ Please output a concise but comprehensive summary of the conversation, with the 
 """
     prompt = prompt.strip()
 
-    print(prompt)
+    # print(prompt)
     response = llm.invoke(prompt)
-    print("LLM summary response:", response.content)
+    # print("LLM summary response:", response.content)
     # print("Initial message:", initial_message)
     # print("Questions:", followup_questions)
     # print("Follow-up answers:", followup_answers)
     return {"context": response.content}
+
+
+def response(state: ContextState):
+    context = state["context"]
+    print("Context:", context)
 
 
 # Conditional Edges
@@ -143,7 +146,7 @@ def has_question(state: ContextState) -> Literal["followup", "summarize"]:
         return "followup"
 
 
-if __name__ == "__main__":
+def build_graph():
     builder = StateGraph(ContextState)
 
     # Add nodes to the graph
@@ -151,19 +154,24 @@ if __name__ == "__main__":
     builder.add_node("gather_context", gather_context)
     builder.add_node("followup", followup)
     builder.add_node("summarize", summarize)
+    builder.add_node("response", response)
 
     # Add edges to the graph
     builder.add_edge(START, "init")
     builder.add_edge("init", "gather_context")
     builder.add_conditional_edges("gather_context", has_question)
     builder.add_edge("followup", "gather_context")
+    builder.add_edge("summarize", "response")
 
-    react_graph = builder.compile()
+    return builder.compile()
 
-    react_graph.get_graph(xray=True).print_ascii()
+
+if __name__ == "__main__":
+    graph = build_graph()
+    graph.get_graph(xray=True).print_ascii()
     # Save the Image to a file
     if SAVE_IMAGE:
-        graph_image = react_graph.get_graph(xray=True).draw_mermaid_png()
+        graph_image = graph.get_graph(xray=True).draw_mermaid_png()
         with open("graph.png", "wb") as f:
             f.write(graph_image)
 
@@ -173,5 +181,5 @@ if __name__ == "__main__":
         )
     ]
 
-    response = react_graph.invoke({"messages": messages})
+    response = graph.invoke({"messages": messages})
     print("\n\nResponse:\n", response)
