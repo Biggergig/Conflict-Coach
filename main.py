@@ -206,11 +206,11 @@ if __name__ == "__main__":
         with open("graph.png", "wb") as f:
             f.write(graph_image)
 
-    messages: List[AnyMessage] = [
-        HumanMessage(
-            content='My partner sent me the text "You didn\'t put the laundry away, you never do anything!", and they asked me to do that yesterday but I forgot because I was busy.'
-        )
-    ]
+    user_context = input(
+        "Please give me some context on the situation you are struggling with:\n"
+    )
+
+    messages: List[AnyMessage] = [HumanMessage(content=user_context)]
 
     response: Dict[str, Any] = graph.invoke({"messages": messages})
     # print(response)
